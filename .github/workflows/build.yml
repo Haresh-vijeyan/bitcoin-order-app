@@ -1,72 +1,77 @@
-name: Bitcoin order App
+
+name: Bitcoin Order App
+
 on:
   push:
     branches:
+      - main
       - githubcicd
+  pull_request:
+    branches:
+      - main
+      - githubcicd
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   ci:
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [16.x]
+        node-version: [22.x]
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          token: ${{ secrets.WORKSHOP6_GITHUB_TOKEN }}
-      - uses: browser-actions/setup-chrome@latest
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
 
-      - name: Cache node modules
-        id: cache-nodemodules
-        uses: actions/cache@v3
-        env:
-          cache-name: cache-node-modules
-        with:
-          # caching node_modules
-          path: node_modules
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
-            ${{ runner.os }}-build-
-            ${{ runner.os }}-
       - name: Install Dependencies
-        if: steps.cache-nodemodules.outputs.cache-hit != 'true'
-        run: |
-          npm ci --force
+        run: npm ci --force
+
       - name: Build
-        run: |
-          npm run build --force
+        run: npm run build --force
+
       - name: Lint
-        run: |
-          npm run lint
-      - name: Update types to latest
-        run: |
-          npm install --save-dev @types/node@latest --force
-      #- name: Test
-      #  run: |
-      #    npm run test --watch=false --browsers=ChromeHeadless
+        run: npm run lint
+
+      # Uncomment when tests are ready
+      # - name: Test
+      #   run: npm run test -- --watch=false --browsers=ChromeHeadless
+
       - name: Conventional Changelog Action
         id: changelog
-        uses: TriPSs/conventional-changelog-action@v3
+        if: github.event_name != 'pull_request'
+        uses: TriPSs/conventional-changelog-action@v5
         with:
-          github-token: ${{ secrets.WORKSHOP6_GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           output-file: "false"
 
       - name: Create Release
-        uses: actions/create-release@v1
-        if: ${{ steps.changelog.outputs.skipped == 'false' }}
+        if: >
+          github.event_name != 'pull_request' &&
+          steps.changelog.outputs.skipped == 'false'
         env:
-          GITHUB_TOKEN: ${{ secrets.WORKSHOP6_GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.changelog.outputs.tag }}
-          release_name: ${{ steps.changelog.outputs.tag }}
-          body: ${{ steps.changelog.outputs.clean_changelog }}
-      - name: Deploy
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npm run deploy
+          gh release create "${{ steps.changelog.outputs.tag }}" \
+            --title "${{ steps.changelog.outputs.tag }}" \
+            --notes "${{ steps.changelog.outputs.clean_changelog }}"
+
+      - name: Deploy
+        if: github.event_name != 'pull_request'
+        run: npm run deploy
 
